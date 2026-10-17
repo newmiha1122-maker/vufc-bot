@@ -91,7 +91,7 @@ ROULETTES = {
 
 # --- БАЗА ДАННЫХ ---
 engine = create_async_engine(DATABASE_URL, echo=False)
-async_session_maker = async_session_maker(engine, expire_on_commit=False)
+async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase, AsyncAttrs):
