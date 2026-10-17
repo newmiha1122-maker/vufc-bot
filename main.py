@@ -39,7 +39,14 @@ ADMIN_IDS = [
     int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()
 ]
 TIMEZONE = "Europe/Moscow"
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///vufc_casino.db")
+# Было:
+# DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///vufc_casino.db")
+
+# Станет (сохранение в корне проекта):
+import pathlib
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR}/vufc_casino.db")
+
 
 logging.basicConfig(level=logging.INFO)
 
