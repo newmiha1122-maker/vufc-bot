@@ -157,7 +157,7 @@ class PromoActivation(Base):
 
 
 async def init_db():
-  async engine.begin() as conn:
+  async with engine.begin() as conn:
     await conn.run_sync(Base.metadata.create_all)
   async with async_session_maker() as session:
     res = await session.execute(
@@ -438,7 +438,6 @@ async def process_bonus(callback: types.CallbackQuery):
     now = datetime.utcnow()
     is_bankrupt = user.balance < 100
 
-    # Проверка 24 часов
     if user.last_bonus_at:
       diff = now - user.last_bonus_at
       if diff < timedelta(hours=24):
@@ -452,7 +451,6 @@ async def process_bonus(callback: types.CallbackQuery):
         )
         return
 
-    # Антифрод (если не банкрот)
     if not is_bankrupt:
       if not user.last_spin_at:
         await callback.answer(
@@ -467,11 +465,10 @@ async def process_bonus(callback: types.CallbackQuery):
         )
         return
 
-    # Выдача бонуса
     user.balance += 150
     user.last_bonus_at = now
     if is_bankrupt:
-      user.last_spin_at = None  # сброс кулдауна для банкрота
+      user.last_spin_at = None
     await session.commit()
 
     await callback.message.edit_text(
@@ -552,7 +549,6 @@ async def process_promo_input(message: types.Message, state: FSMContext):
       )
       return
 
-    # Проверка активации юзером
     act_res = await session.execute(
         select(PromoActivation).where(
             PromoActivation.user_id == user.id,
@@ -565,19 +561,18 @@ async def process_promo_input(message: types.Message, state: FSMContext):
       )
       return
 
-    # Активация фриспина (проведем спин автоматически или начислим как бесплатную игру)
     promo.remaining_activations -= 1
     session.add(
         PromoActivation(user_id=user.id, promocode_id=promo.id)
     )
 
-    # Прокручиваем фриспин мгновенно
     roulette = ROULETTES.get(promo.roulette_type, ROULETTES["jobber"])
     is_win = secrets.randbelow(10000) + 1 <= roulette["chance_bp"]
 
     gross, tax, net = 0, 0, 0
     if is_win:
-      gross, tax, net = promo.amount * roulette["multiplier"], 0, int(promo.amount * roulette["multiplier"])
+      gross = promo.amount * roulette["multiplier"]
+      net = int(gross)
       if net > 25000:
         tax = int(net * 0.10)
         net -= tax
@@ -595,7 +590,7 @@ async def process_promo_input(message: types.Message, state: FSMContext):
             roulette_type=promo.roulette_type,
             bet_amount=promo.amount,
             multiplier=roulette["multiplier"],
-            gross_win=gross,
+            gross_win=int(gross),
             net_win=net if is_win else 0,
             tax=tax,
             is_free_spin=True,
@@ -650,7 +645,6 @@ async def choose_roulette(callback: types.CallbackQuery, state: FSMContext):
     )
     user = res.scalar_one()
 
-    # Проверка кулдауна (30 минут)
     if user.balance >= 100 and user.last_spin_at:
       diff = datetime.utcnow() - user.last_spin_at
       if diff < timedelta(minutes=30):
@@ -709,12 +703,10 @@ async def process_bet(message: types.Message, state: FSMContext):
       await message.answer("❌ Недостаточно средств.", reply_markup=cancel_kb())
       return
 
-    # Списание и фиксация времени
     user.balance -= bet
     user.last_spin_at = datetime.utcnow()
     user.is_in_weekly_draw = True
 
-    # Рандом спина
     is_win = secrets.randbelow(10000) + 1 <= r_data["chance_bp"]
 
     gross, tax, net = 0, 0, 0
@@ -773,7 +765,7 @@ async def process_bet(message: types.Message, state: FSMContext):
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message):
   if message.from_user.id not in ADMIN_IDS:
-    return  # Игнорируем чужих
+    return
   text = (
       "⚙️ <b>Админ-панель VUFC CASINO</b>\n\nКоманды:\n/addpromo [код]"
       " [рулетка] [сумма] [активации]"
@@ -836,8 +828,6 @@ async def run_league_bank_draw(bot: Bot):
     await session.execute(update(User).values(is_in_weekly_draw=False))
     await session.commit()
 
-    fighter_name = html.escape(winner.fighter_name)
-    username = f"(@{html.escape(winner.username)})" if winner.username else ""
     await bot.send_message(
         winner.telegram_id,
         f"🏆 <b>РОЗЫГРЫШ БАНКА ЛИГИ!</b>\nВы стали победителем и забираете"
